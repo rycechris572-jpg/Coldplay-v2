@@ -1,0 +1,12 @@
+
+{
+  "geode": "5.0.0",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "coldplay.companion",
+  "name": "COLDPLAY Companion",
+  "version": "0.1.0",
+  "developer": "COLDPLAY",
+  "description": "Companion bridge for the COLDPLAY desktop application."
+}
