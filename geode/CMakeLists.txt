@@ -12,3 +12,7 @@ setup_geode_mod(${PROJECT_NAME}
     SOURCES
         src/main.cpp
 )
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+)
