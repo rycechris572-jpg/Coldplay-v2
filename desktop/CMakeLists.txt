@@ -13,6 +13,10 @@ qt_add_executable(ColdplayDesktop
     src/main.cpp
 )
 
+target_include_directories(ColdplayDesktop PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+)
+
 target_link_libraries(ColdplayDesktop
     PRIVATE Qt6::Widgets
 )
