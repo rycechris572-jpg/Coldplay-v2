@@ -9,7 +9,12 @@ namespace Coldplay::Protocol {
 
     inline constexpr std::string_view APP_NAME = "COLDPLAY";
 
-    // Desktop <-> Geode message types
+    inline constexpr std::string_view PIPE_NAME =
+        R"(\\.\pipe\ColdplayBridge)";
+
+    inline constexpr unsigned int MAX_MESSAGE_SIZE = 4096;
+
+    // Desktop and Geode message types.
     inline constexpr std::string_view HELLO = "hello";
     inline constexpr std::string_view STATUS = "status";
     inline constexpr std::string_view LOG = "log";
