@@ -1,4 +1,5 @@
 #include <Geode/Geode.hpp>
+#include "Bridge.hpp"
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
@@ -672,6 +673,8 @@ static TrajectoryBufferSim s_sim;
 // COLDPLAY STARTUP
 // ============================================================================
 
+static ColdplayBridge s_bridge;
+
 $on_mod(Loaded) {
     AllocConsole();
 
@@ -687,8 +690,14 @@ $on_mod(Loaded) {
     printf(" 120-tick mode: Removed\n");
     printf(" Wave spam optimization: Enabled\n");
     printf("============================================================\n");
+
+    s_bridge.start();
 }
 
+$on_mod(Unloaded) {
+    s_bridge.stop();
+}
+  
 // ============================================================================
 // PLAY LAYER
 // ============================================================================
