@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(${PROJECT_NAME} SHARED
     src/main.cpp
+    src/Bridge.cpp
 )
 
 if (NOT DEFINED ENV{GEODE_SDK})
