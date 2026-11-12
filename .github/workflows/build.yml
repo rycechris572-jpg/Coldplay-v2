@@ -56,9 +56,12 @@ jobs:
       - name: Build COLDPLAY
         run: cmake --build desktop/build --config Release
 
+      - name: Deploy Qt Runtime
+        run: windeployqt --release --compiler-runtime desktop/build/Release/ColdplayDesktop.exe
+      
       - name: Upload Desktop artifact
         uses: actions/upload-artifact@v4
         with:
           name: coldplay-desktop-windows
-          path: desktop/build/**/ColdplayDesktop.exe
+          path: desktop/build/Release/
           if-no-files-found: error
