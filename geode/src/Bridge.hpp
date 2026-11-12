@@ -1,10 +1,8 @@
 
 #pragma once
 
-#include <string>
 #include <atomic>
 #include <thread>
-#include <mutex>
 
 class ColdplayBridge {
 public:
@@ -24,7 +22,6 @@ private:
     std::atomic<bool> m_connected{false};
 
     std::thread m_worker;
-    std::mutex m_mutex;
 
     void workerLoop();
 };
