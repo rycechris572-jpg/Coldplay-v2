@@ -4,7 +4,112 @@
 
 #include <Windows.h>
 #include <string>
-#include <chrono>
+
+namespace {
+
+bool finishOperation(
+    HANDLE pipe,
+    OVERLAPPED& operation,
+    DWORD& transferred,
+    const std::atomic<bool>& running
+) {
+    while (true) {
+        DWORD wait = WaitForSingleObject(operation.hEvent, 50);
+
+        if (wait == WAIT_OBJECT_0) {
+            return GetOverlappedResult(
+                pipe, &operation, &transferred, FALSE
+            ) != FALSE;
+        }
+
+        if (wait == WAIT_FAILED)
+            return false;
+
+        if (!running.load()) {
+            CancelIoEx(pipe, &operation);
+            WaitForSingleObject(operation.hEvent, INFINITE);
+            return false;
+        }
+    }
+}
+
+bool writeAll(
+    HANDLE pipe,
+    const char* data,
+    DWORD size,
+    const std::atomic<bool>& running
+) {
+    DWORD offset = 0;
+
+    while (offset < size && running.load()) {
+        OVERLAPPED operation{};
+        operation.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+        if (!operation.hEvent)
+            return false;
+
+        DWORD written = 0;
+
+        BOOL result = WriteFile(
+            pipe,
+            data + offset,
+            size - offset,
+            &written,
+            &operation
+        );
+
+        if (!result && GetLastError() == ERROR_IO_PENDING) {
+            result = finishOperation(
+                pipe, operation, written, running
+            );
+        }
+
+        CloseHandle(operation.hEvent);
+
+        if (!result || written == 0)
+            return false;
+
+        offset += written;
+    }
+
+    return offset == size;
+}
+
+bool readSome(
+    HANDLE pipe,
+    char* buffer,
+    DWORD capacity,
+    DWORD& bytesRead,
+    const std::atomic<bool>& running
+) {
+    OVERLAPPED operation{};
+    operation.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+    if (!operation.hEvent)
+        return false;
+
+    bytesRead = 0;
+
+    BOOL result = ReadFile(
+        pipe,
+        buffer,
+        capacity,
+        &bytesRead,
+        &operation
+    );
+
+    if (!result && GetLastError() == ERROR_IO_PENDING) {
+        result = finishOperation(
+            pipe, operation, bytesRead, running
+        );
+    }
+
+    CloseHandle(operation.hEvent);
+
+    return result && bytesRead > 0;
+}
+
+}
 
 void ColdplayBridge::start() {
     bool expected = false;
@@ -38,8 +143,8 @@ void ColdplayBridge::workerLoop() {
     while (m_running.load()) {
         HANDLE pipe = CreateNamedPipeA(
             pipeName.c_str(),
-            PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1,
             Coldplay::Protocol::MAX_MESSAGE_SIZE,
             Coldplay::Protocol::MAX_MESSAGE_SIZE,
@@ -52,58 +157,68 @@ void ColdplayBridge::workerLoop() {
             continue;
         }
 
+        OVERLAPPED connectOperation{};
+        connectOperation.hEvent =
+            CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
         bool connected = false;
 
-        while (m_running.load()) {
-            if (ConnectNamedPipe(pipe, nullptr)) {
+        if (connectOperation.hEvent) {
+            BOOL result = ConnectNamedPipe(
+                pipe, &connectOperation
+            );
+
+            if (result) {
                 connected = true;
-                break;
+            }
+            else {
+                DWORD error = GetLastError();
+
+                if (error == ERROR_PIPE_CONNECTED) {
+                    connected = true;
+                }
+                else if (error == ERROR_IO_PENDING) {
+                    DWORD transferred = 0;
+
+                    connected = finishOperation(
+                        pipe,
+                        connectOperation,
+                        transferred,
+                        m_running
+                    );
+                }
             }
 
-            DWORD error = GetLastError();
-
-            if (error == ERROR_PIPE_CONNECTED) {
-                connected = true;
-                break;
-            }
-
-            if (error != ERROR_PIPE_LISTENING &&
-                error != ERROR_NO_DATA) {
-                break;
-            }
-
-            Sleep(20);
+            CloseHandle(connectOperation.hEvent);
         }
 
         if (connected && m_running.load()) {
             m_connected.store(true);
 
             const char greeting[] = "COLDPLAY_READY\n";
-            DWORD written = 0;
 
-            WriteFile(
+            if (writeAll(
                 pipe,
                 greeting,
                 sizeof(greeting) - 1,
-                &written,
-                nullptr
-            );
+                m_running
+            )) {
+                std::string incoming;
+                char buffer[512];
 
-            std::string incoming;
-            char buffer[512];
+                while (m_running.load()) {
+                    DWORD bytesRead = 0;
 
-            while (m_running.load()) {
-                DWORD bytesRead = 0;
+                    if (!readSome(
+                        pipe,
+                        buffer,
+                        sizeof(buffer),
+                        bytesRead,
+                        m_running
+                    )) {
+                        break;
+                    }
 
-                BOOL result = ReadFile(
-                    pipe,
-                    buffer,
-                    sizeof(buffer),
-                    &bytesRead,
-                    nullptr
-                );
-
-                if (result && bytesRead > 0) {
                     incoming.append(buffer, bytesRead);
 
                     size_t newline;
@@ -124,43 +239,24 @@ void ColdplayBridge::workerLoop() {
                         else
                             response = "UNKNOWN_COMMAND\n";
 
-                        DWORD responseBytes = 0;
-
-                        if (!WriteFile(
+                        if (!writeAll(
                             pipe,
                             response.data(),
                             static_cast<DWORD>(response.size()),
-                            &responseBytes,
-                            nullptr
+                            m_running
                         )) {
                             break;
                         }
                     }
-                }
-                else if (!result) {
-                    DWORD error = GetLastError();
-
-                    if (error == ERROR_NO_DATA) {
-                        Sleep(10);
-                        continue;
-                    }
-
-                    if (error == ERROR_MORE_DATA) {
-                        incoming.append(buffer, bytesRead);
-                        continue;
-                    }
-
-                    break;
-                }
-                else {
-                    Sleep(10);
                 }
             }
         }
 
         m_connected.store(false);
 
-        DisconnectNamedPipe(pipe);
+        if (connected)
+            DisconnectNamedPipe(pipe);
+
         CloseHandle(pipe);
     }
 
