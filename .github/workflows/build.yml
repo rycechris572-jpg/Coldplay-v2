@@ -1,0 +1,64 @@
+
+name: Build COLDPLAY (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build-geode:
+    name: Build Geode Companion
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Geode mod
+        id: build
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          path: geode
+          target: Win64
+          sdk: given
+          build-config: Release
+
+      - name: Upload Geode artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coldplay-companion-windows
+          path: ${{ steps.build.outputs.build-output }}
+          if-no-files-found: error
+
+  build-desktop:
+    name: Build COLDPLAY Desktop
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+
+      - name: Configure COLDPLAY
+        run: cmake -S desktop -B desktop/build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build COLDPLAY
+        run: cmake --build desktop/build --config Release
+
+      - name: Upload Desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coldplay-desktop-windows
+          path: desktop/build/**/ColdplayDesktop.exe
+          if-no-files-found: error
