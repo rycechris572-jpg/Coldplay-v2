@@ -4,6 +4,8 @@
 
 #include <Windows.h>
 #include <string>
+#include <charconv>
+#include <system_error>
 
 namespace {
 
@@ -109,6 +111,23 @@ bool readSome(
     return result && bytesRead > 0;
 }
 
+bool parsePresetCommand(const std::string& command, int& preset) {
+    constexpr char prefix[] = "SET_PRESET ";
+
+    if (command.compare(0, sizeof(prefix) - 1, prefix) != 0)
+        return false;
+
+    const char* begin = command.data() + sizeof(prefix) - 1;
+    const char* end = command.data() + command.size();
+
+    auto result = std::from_chars(begin, end, preset);
+
+    return result.ec == std::errc{} &&
+           result.ptr == end &&
+           preset >= 0 &&
+           preset <= 9;
+}
+
 }
 
 void ColdplayBridge::start() {
@@ -131,6 +150,10 @@ void ColdplayBridge::stop() {
 
 bool ColdplayBridge::isConnected() const {
     return m_connected.load();
+}
+
+int ColdplayBridge::takeRequestedPreset() {
+    return m_requestedPreset.exchange(-1);
 }
 
 ColdplayBridge::~ColdplayBridge() {
@@ -205,8 +228,9 @@ void ColdplayBridge::workerLoop() {
             )) {
                 std::string incoming;
                 char buffer[512];
+                bool connectionAlive = true;
 
-                while (m_running.load()) {
+                while (m_running.load() && connectionAlive) {
                     DWORD bytesRead = 0;
 
                     if (!readSome(
@@ -221,6 +245,11 @@ void ColdplayBridge::workerLoop() {
 
                     incoming.append(buffer, bytesRead);
 
+                    if (incoming.size() >
+                        Coldplay::Protocol::MAX_MESSAGE_SIZE) {
+                        break;
+                    }
+
                     size_t newline;
 
                     while ((newline = incoming.find('\n'))
@@ -230,14 +259,43 @@ void ColdplayBridge::workerLoop() {
 
                         incoming.erase(0, newline + 1);
 
+                        if (!command.empty() &&
+                            command.back() == '\r') {
+                            command.pop_back();
+                        }
+
                         std::string response;
 
-                        if (command == "PING")
+                        if (command == "PING") {
                             response = "PONG\n";
-                        else if (command == "HELLO")
+                        }
+                        else if (command == "HELLO") {
                             response = "HELLO_ACK\n";
-                        else
-                            response = "UNKNOWN_COMMAND\n";
+                        }
+                        else {
+                            int requestedPreset = -1;
+
+                            if (parsePresetCommand(
+                                command, requestedPreset
+                            )) {
+                                m_requestedPreset.store(
+                                    requestedPreset
+                                );
+
+                                response =
+                                    "PRESET_QUEUED " +
+                                    std::to_string(requestedPreset) +
+                                    "\n";
+                            }
+                            else if (command.rfind(
+                                "SET_PRESET ", 0
+                            ) == 0) {
+                                response = "INVALID_PRESET\n";
+                            }
+                            else {
+                                response = "UNKNOWN_COMMAND\n";
+                            }
+                        }
 
                         if (!writeAll(
                             pipe,
@@ -245,6 +303,7 @@ void ColdplayBridge::workerLoop() {
                             static_cast<DWORD>(response.size()),
                             m_running
                         )) {
+                            connectionAlive = false;
                             break;
                         }
                     }
