@@ -693,10 +693,6 @@ $on_mod(Loaded) {
 
     s_bridge.start();
 }
-
-$on_mod(Unloaded) {
-    s_bridge.stop();
-}
   
 // ============================================================================
 // PLAY LAYER
