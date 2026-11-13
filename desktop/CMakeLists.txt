@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Network)
 
 qt_add_executable(ColdplayDesktop
     src/main.cpp
@@ -18,5 +18,7 @@ target_include_directories(ColdplayDesktop PRIVATE
 )
 
 target_link_libraries(ColdplayDesktop
-    PRIVATE Qt6::Widgets
+    PRIVATE
+        Qt6::Widgets
+        Qt6::Network
 )
