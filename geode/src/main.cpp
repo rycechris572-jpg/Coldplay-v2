@@ -1,3 +1,4 @@
+
 #include <Geode/Geode.hpp>
 #include "Bridge.hpp"
 #include <Geode/modify/PlayLayer.hpp>
@@ -138,13 +139,12 @@ public:
         m_rapidInputStreak = 0;
     }
 
-    // F6 cycles through the available presets and OFF.
-    // Maximum prediction is 60 ticks.
-    void cyclePreset() {
-        m_presetIndex = (m_presetIndex + 1) % 10;
-
-        m_waitTicks = -1;
-        m_queuedOpposite = false;
+    // Apply a preset received from the desktop or F6.
+    // Indices 0-8 = stages 1-9, index 9 = OFF.
+    void setPreset(int index) {
+        if (index < 0 || index > 9) {
+            return;
+        }
 
         constexpr int normalTicks[] = {
             2, 4, 8, 16, 24, 32, 48, 54, 60, 0
@@ -153,6 +153,12 @@ public:
         constexpr int waveTicks[] = {
             2, 4, 8, 8, 24, 32, 48, 54, 60, 0
         };
+
+        m_presetIndex = index;
+
+        // Clear pending input when changing presets.
+        m_waitTicks = -1;
+        m_queuedOpposite = false;
 
         m_enabled = m_presetIndex != 9;
 
@@ -169,6 +175,11 @@ public:
         } else {
             printf("[COLDPLAY] Buffer OFF\n");
         }
+    }
+
+    // F6 cycles through the available presets and OFF.
+    void cyclePreset() {
+        setPreset((m_presetIndex + 1) % 10);
     }
 
     int normalTicks() const {
@@ -689,11 +700,12 @@ $on_mod(Loaded) {
     printf(" In-game tick display: Disabled\n");
     printf(" 120-tick mode: Removed\n");
     printf(" Wave spam optimization: Enabled\n");
+    printf(" Desktop preset bridge: Enabled\n");
     printf("============================================================\n");
 
     s_bridge.start();
 }
-  
+
 // ============================================================================
 // PLAY LAYER
 // ============================================================================
@@ -895,6 +907,18 @@ class $modify(BufPlayerObject, PlayerObject) {
 
     void update(float dt) {
         if (!s_sim.isSimulating()) {
+            PlayLayer* pl = PlayLayer::get();
+
+            // Consume desktop preset requests on the game thread.
+            // Player 1 handles the request exactly once per update.
+            if (pl && this == pl->m_player1) {
+                int requestedPreset = s_bridge.takeRequestedPreset();
+
+                if (requestedPreset >= 0) {
+                    s_sim.setPreset(requestedPreset);
+                }
+            }
+
             s_sim.onPlayerUpdate(this);
         }
 
